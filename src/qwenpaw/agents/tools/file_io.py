@@ -21,6 +21,7 @@ from ...config.context import (
     get_tool_base_dir,
 )
 from ...runtime.tool_registry import tool_descriptor
+from ...execution import get_current_execution_target
 from ...utils.io_utils import (
     append_text_async,
     get_path_lock,
@@ -80,6 +81,10 @@ def _resolve_file_path(file_path: str) -> str:
     Returns:
         The resolved absolute file path as string.
     """
+    target = get_current_execution_target()
+    if not target.is_local:
+        return target.resolve(file_path)
+
     path = Path(file_path).expanduser()
     if path.is_absolute():
         return str(path)
@@ -112,6 +117,7 @@ def _get_encoding_for_file(file_path: str) -> str:
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("fs.read",),
     async_execution=True,
     tool_type="file",
     target_param="file_path",
@@ -182,7 +188,11 @@ async def read_file(  # pylint: disable=too-many-return-statements
     file_path = _resolve_file_path(file_path)
 
     try:
-        content = await read_file_safe(file_path)
+        target = get_current_execution_target()
+        if target.is_local:
+            content = await read_file_safe(file_path)
+        else:
+            content = await target.read_text(file_path, encoding="utf-8-sig")
         all_lines = content.split("\n")
         total = len(all_lines)
 
@@ -288,6 +298,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
 @tool_descriptor(
     requires_sandbox=("file_write",),
+    requires_capabilities=("fs.write",),
     async_execution=True,
     tool_type="file",
     target_param="file_path",
@@ -325,12 +336,21 @@ async def write_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        async with get_path_lock(file_path):
-            await write_text_atomic_async(
+        target = get_current_execution_target()
+        if target.is_local:
+            async with get_path_lock(file_path):
+                await write_text_atomic_async(
+                    file_path,
+                    content,
+                    encoding=encoding,
+                    new_file_mode=_USER_FILE_MODE,
+                )
+        else:
+            await target.write_text(
                 file_path,
                 content,
                 encoding=encoding,
-                new_file_mode=_USER_FILE_MODE,
+                atomic=True,
             )
         return ToolChunk(
             is_last=True,
@@ -358,6 +378,7 @@ async def write_file(
 # pylint: disable=too-many-return-statements
 @tool_descriptor(
     requires_sandbox=("file_write",),
+    requires_capabilities=("fs.write",),
     async_execution=True,
     tool_type="file",
     target_param="file_path",
@@ -398,6 +419,64 @@ async def edit_file(
     resolved_path = _resolve_file_path(file_path)
 
     encoding = _get_encoding_for_file(resolved_path)
+    target = get_current_execution_target()
+    if not target.is_local:
+        try:
+            content = await target.read_text(
+                resolved_path,
+                encoding="utf-8-sig",
+            )
+        except FileNotFoundError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The file {resolved_path} does not exist.",
+                    ),
+                ],
+            )
+        if old_text not in content:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The text to replace was not found in {file_path}.",
+                    ),
+                ],
+            )
+        try:
+            await target.write_text(
+                resolved_path,
+                content.replace(old_text, new_text),
+                encoding=encoding,
+                atomic=True,
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Write file failed due to \n{e}",
+                    ),
+                ],
+            )
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Successfully replaced text in {file_path}.",
+                ),
+            ],
+        )
+
     async with get_path_lock(resolved_path):
         try:
             content = await read_file_safe(resolved_path)
@@ -487,6 +566,7 @@ async def edit_file(
 
 @tool_descriptor(
     requires_sandbox=("file_write",),
+    requires_capabilities=("fs.write",),
     async_execution=True,
     enabled_by_default=False,
     tool_type="file",
@@ -525,11 +605,19 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        await append_text_async(
-            file_path,
-            content,
-            encoding=encoding,
-        )
+        target = get_current_execution_target()
+        if target.is_local:
+            await append_text_async(
+                file_path,
+                content,
+                encoding=encoding,
+            )
+        else:
+            await target.append_text(
+                file_path,
+                content,
+                encoding=encoding,
+            )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

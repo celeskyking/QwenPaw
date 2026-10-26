@@ -18,6 +18,7 @@ from agentscope.message import ToolResultState
 
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
+from ...execution import get_current_execution_target
 from .file_io import _resolve_file_path
 
 # ---------------------------------------------------------------------------
@@ -598,6 +599,7 @@ def _walk_and_glob(
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("fs.search",),
     async_execution=True,
     tool_type="file",
     target_param="path",
@@ -648,6 +650,25 @@ async def grep_search(
     """
     if not pattern:
         return _make_response("Error: No search `pattern` provided.")
+
+    target = get_current_execution_target()
+    if not target.is_local:
+        try:
+            remote_path = target.resolve(path) if path else None
+            result = await target.grep(
+                pattern,
+                path=remote_path,
+                is_regex=is_regex,
+                case_sensitive=case_sensitive,
+                context_lines=context_lines,
+                include_pattern=include_pattern,
+                show_file=show_file,
+            )
+        except Exception as exc:
+            return _make_response(f"Error: grep failed — {exc}")
+        return _make_response(
+            result if result else f"No matches found for pattern: {pattern}",
+        )
 
     root_or_err = _resolve_search_root(path)
     if isinstance(root_or_err, ToolChunk):
@@ -723,6 +744,7 @@ async def grep_search(
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("fs.search",),
     async_execution=True,
     tool_type="file",
     target_param="path",
@@ -750,6 +772,17 @@ async def glob_search(
     """
     if not pattern:
         return _make_response("Error: No glob `pattern` provided.")
+
+    target = get_current_execution_target()
+    if not target.is_local:
+        try:
+            remote_path = target.resolve(path) if path else None
+            results = await target.glob(pattern, path=remote_path)
+        except Exception as exc:
+            return _make_response(f"Error: Glob search failed — {exc}")
+        if not results:
+            return _make_response(f"No files matched pattern: {pattern}")
+        return _make_response("\n".join(results))
 
     root_or_err = _resolve_search_root(path, require_dir=True)
     if isinstance(root_or_err, ToolChunk):

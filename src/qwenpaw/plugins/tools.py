@@ -58,6 +58,7 @@ class ToolSpec:
     icon: str = "🔧"
     config_fields: tuple[ConfigField, ...] = ()
     timeout: float | None = None
+    requires_capabilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,12 @@ class ToolContext:
     )
 
     _plugin: PluginContext | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    execution_target: Any | None = field(
         default=None,
         repr=False,
         compare=False,

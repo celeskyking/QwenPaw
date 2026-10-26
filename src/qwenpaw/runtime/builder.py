@@ -747,6 +747,17 @@ class AgentBuilder:
         )
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        target = getattr(ctx, "execution_target", None)
+        if target is not None:
+            rc["execution_target"] = target
+            snapshot = getattr(target, "snapshot", None)
+            if snapshot is not None:
+                rc["execution_target_snapshot"] = snapshot
+                rc["execution_target_id"] = snapshot.target_id
+                rc["execution_target_generation"] = snapshot.generation
+                rc["execution_target_capabilities"] = set(
+                    snapshot.capabilities,
+                )
         mode_state = getattr(ctx, "mode_state", {}) or {}
         mission_state = mode_state.get("mission", {})
         if isinstance(mission_state, dict) and mission_state.get("active"):

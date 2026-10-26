@@ -17,6 +17,7 @@ from ...browser.tool_entrypoint import (
 
 @tool_descriptor(
     name="browser",
+    requires_capabilities=("browser.local",),
     enabled_by_default=True,
     async_execution=True,
     description=_BROWSER_TOOL_DESCRIPTION,

@@ -28,6 +28,7 @@ from ...config.context import (
     get_tool_base_dir,
 )
 from ...runtime.tool_registry import tool_descriptor
+from ...execution import get_current_execution_target
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
@@ -1332,6 +1333,7 @@ async def _execute_posix_host(
 # pylint: disable=too-many-branches, too-many-statements
 @tool_descriptor(
     requires_sandbox=("shell_exec",),
+    requires_capabilities=("proc.exec",),
     async_execution=True,
     tool_type="shell",
     target_param="command",
@@ -1380,17 +1382,21 @@ async def execute_shell_command(
             return code will be -1 and stderr will contain timeout information.
     """
 
-    shell_executable = (
-        get_current_shell_command_executable()
-        or os.environ.get("SHELL")
-        or None
-    )
-    cmd = _collapse_embedded_newlines(
-        (command or "").strip(),
-        shell_executable=shell_executable,
-    )
+    target = get_current_execution_target()
+    if target.is_local:
+        shell_executable = (
+            get_current_shell_command_executable()
+            or os.environ.get("SHELL")
+            or None
+        )
+        cmd = _collapse_embedded_newlines(
+            (command or "").strip(),
+            shell_executable=shell_executable,
+        )
+    else:
+        cmd = (command or "").strip()
 
-    if _is_dangerous_self_kill(cmd):
+    if target.is_local and _is_dangerous_self_kill(cmd):
         return ToolChunk(
             is_last=True,
             state=ToolResultState.ERROR,
@@ -1418,6 +1424,59 @@ async def execute_shell_command(
         configured = get_current_shell_command_timeout()
         if configured is not None:
             timeout = configured
+
+    if not target.is_local:
+        remote_cwd = None
+        if cwd is not None:
+            remote_cwd = target.resolve(str(cwd))
+        try:
+            result = await target.execute(
+                cmd,
+                cwd=remote_cwd,
+                env=None,
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Command failed with exit code -1.\n[stderr]\n"
+                            f"⚠️ TimeoutError: The command execution exceeded "
+                            f"the timeout of {timeout} seconds."
+                        ),
+                    ),
+                ],
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[TextBlock(text=f"Error: remote command failed — {exc}")],
+            )
+        stdout = result.stdout_text()
+        stderr = result.stderr_text()
+        if result.exit_code == 0:
+            response_text = stdout or "Command executed successfully (no output)."
+            if stderr:
+                response_text += f"\n[stderr]\n{stderr}"
+        else:
+            parts = [f"Command failed with exit code {result.exit_code}."]
+            if stdout:
+                parts.append(f"\n[stdout]\n{stdout}")
+            if stderr:
+                parts.append(f"\n[stderr]\n{stderr}")
+            response_text = "".join(parts)
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(text=response_text)],
+        )
 
     if cwd is not None:
         # A relative cwd is taken from the primary directory; an absolute one

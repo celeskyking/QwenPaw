@@ -216,6 +216,7 @@ def _format_matches(
 @tool_descriptor(
     requires_modes=("coding",),
     requires_sandbox=("file_read",),
+    requires_capabilities=("ast.local",),
     tool_type="file",
     target_param="path",
     pattern_param="pattern",

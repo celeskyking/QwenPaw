@@ -303,6 +303,8 @@ class PluginContext:  # pylint: disable=protected-access
                     ),
                     "/api/files/preview/" + str(media_root),
                 )
+            from ..execution import get_current_execution_target
+
             context = ToolContext(
                 self.plugin_id,
                 self.generation,
@@ -312,6 +314,7 @@ class PluginContext:  # pylint: disable=protected-access
                 storage,
                 media,
                 scope,
+                execution_target=get_current_execution_target(),
                 deadline=deadline,
                 _is_cancelled=lambda: bool(task and task.cancelling()),
                 _plugin=self,
@@ -682,6 +685,7 @@ class PluginContext:  # pylint: disable=protected-access
                 invoke,
                 enabled_by_default=spec.enabled,
                 requires_modes=(_mode,),
+                requires_capabilities=spec.requires_capabilities,
                 async_execution=True,
                 description=spec.description,
                 owner_plugin_id=self.plugin_id,
@@ -720,6 +724,7 @@ class PluginContext:  # pylint: disable=protected-access
             spec.enabled,
             spec.tool_type,
             spec.target_param,
+            spec.requires_capabilities,
         )
         rows = list(self._instance._runtime[before:])
         hook = next(
@@ -1356,6 +1361,22 @@ class PluginContext:  # pylint: disable=protected-access
         from ._providers import register
 
         return register(self, spec)
+
+    def register_execution_target_provider(
+        self,
+        name: str,
+        provider,
+        *,
+        priority: int = 100,
+    ) -> Registration:
+        """Register a request-scoped execution target provider."""
+        handle = self._register_contribution(
+            self._api.register_execution_target_provider,
+            name,
+            provider,
+            priority=priority,
+        )
+        return self._with_admission(handle)
 
     def register_memory(self, spec: MemorySpec) -> Registration:
         from ._memory import register

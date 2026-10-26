@@ -670,6 +670,7 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
 
 @tool_descriptor(
     requires_sandbox=("file_read", "file_write"),
+    requires_capabilities=("media.local",),
     async_execution=True,
     tool_type="file",
     target_param="image_path",
@@ -809,6 +810,7 @@ async def view_image(image_path: str) -> ToolChunk:
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("media.local",),
     async_execution=True,
     tool_type="file",
     target_param="video_path",
@@ -896,6 +898,7 @@ async def view_video(video_path: str) -> ToolChunk:
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("media.local",),
     async_execution=True,
     tool_type="file",
     target_param="audio_path",

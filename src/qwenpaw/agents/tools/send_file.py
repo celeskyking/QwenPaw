@@ -16,6 +16,7 @@ from .file_io import _resolve_file_path, _path_to_file_url
 
 @tool_descriptor(
     requires_sandbox=("file_read",),
+    requires_capabilities=("file.transfer.local",),
     async_execution=True,
     tool_type="file",
     target_param="file_path",

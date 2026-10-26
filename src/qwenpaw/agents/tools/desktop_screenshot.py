@@ -141,6 +141,7 @@ async def _capture_macos_screencapture(
 
 @tool_descriptor(
     requires_sandbox=("file_write",),
+    requires_capabilities=("screen.local",),
     async_execution=True,
     tool_type="file",
     target_param="path",

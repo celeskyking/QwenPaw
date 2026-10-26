@@ -987,6 +987,7 @@ async def _run_streaming_agent_action(
 @tool_descriptor(
     async_execution=True,
     enabled_by_default=False,
+    requires_capabilities=("host.cli",),
     tool_type="internal",
     target_param="runner",
     policy_name="DelegateExternalAgent",

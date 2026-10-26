@@ -23,6 +23,7 @@ from ...runtime.occupancy import occupancy_conflict
 from ...runtime.prompt_manager import PromptManager
 from ...runtime.slash_command_registry import SlashCommandRegistry
 from ...runtime.tool_registry import ToolRegistry
+from ...execution.registry import ExecutionTargetRegistry
 
 if TYPE_CHECKING:
     from ...loop.gates import StopHandlerRegistration
@@ -39,6 +40,9 @@ class WorkspacePlugins:
     )
     hook_registry: HookRegistry = field(default_factory=HookRegistry)
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
+    execution_target_registry: ExecutionTargetRegistry = field(
+        default_factory=ExecutionTargetRegistry,
+    )
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
     _pending_modes: list["AgentMode"] = field(default_factory=list, repr=False)

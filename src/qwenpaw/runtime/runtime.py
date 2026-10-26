@@ -61,8 +61,31 @@ class Runtime:
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
+        target_token = None
 
         try:
+            from ..execution import ExecutionTargetRequest, set_execution_target
+
+            request_context = getattr(request, "request_context", None)
+            if not isinstance(request_context, dict):
+                request_context = {}
+            ctx.execution_target = await (
+                self.workspace.plugins.execution_target_registry.resolve(
+                    ExecutionTargetRequest(
+                        workspace_id=str(ctx.agent_id),
+                        agent_id=ctx.agent_id,
+                        session_id=ctx.session_id,
+                        workspace_dir=(
+                            str(ctx.workspace_dir)
+                            if ctx.workspace_dir is not None
+                            else None
+                        ),
+                        request_context=request_context,
+                    ),
+                )
+            )
+            target_token = set_execution_target(ctx.execution_target)
+
             # --- [phase 1] PRE_DISPATCH ---
             r = await hooks.run(Phase.PRE_DISPATCH, ctx)
             if r.action == HookAction.SHORT_CIRCUIT:
@@ -225,7 +248,13 @@ class Runtime:
                         getattr(ctx, "session_id", ""),
                         exc_info=True,
                     )
-            await hooks.run(Phase.FINALLY, ctx)
+            try:
+                await hooks.run(Phase.FINALLY, ctx)
+            finally:
+                if target_token is not None:
+                    from ..execution import reset_execution_target
+
+                    reset_execution_target(target_token)
 
     # ----------------------------------------------------------------- helpers
 

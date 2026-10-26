@@ -209,12 +209,20 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
     params = getattr(self, "_qp_raw_params", {})
     tool_name = _policy_tool_name(self)
     request_ctx = getattr(self, "_qp_request_context", {}) or {}
+    execution_target = request_ctx.get("execution_target")
+    policy_base = _relative_path_base(governor)
+    if execution_target is not None and not getattr(
+        execution_target,
+        "is_local",
+        True,
+    ):
+        policy_base = ""
     return ToolCallSpec(
         tool_name=tool_name,
         target=DEFAULT_REGISTRY.extract_target(
             tool_name,
             params,
-            workspace_dir=_relative_path_base(governor),
+            workspace_dir=policy_base,
         ),
         agent_id=request_ctx.get("agent_id", ""),
         session_id=request_ctx.get("session_id", ""),

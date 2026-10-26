@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from agentscope.agent import Agent
     from agentscope.message import Msg
 
+    from ..execution import ExecutionTarget
     from ..schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ class HookContext:
     # ── Escape hatches ──
     mode_state: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
+    execution_target: "ExecutionTarget | None" = None
 
     def inject_context(
         self,

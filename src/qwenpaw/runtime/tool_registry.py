@@ -70,6 +70,8 @@ class ToolDescriptor:
                               honors (``"file_read"``, ``"file_write"``,
                               ``"shell_exec"`` …). Not used for selection
                               here; consumed by ``GuardedFunctionTool``.
+    * ``requires_capabilities`` — execution-target capabilities required by
+                              the tool (``"fs.read"``, ``"proc.exec"`` …).
     """
 
     name: str
@@ -87,6 +89,7 @@ class ToolDescriptor:
     )
     ui: ToolUISpec = field(default_factory=ToolUISpec)
     owner_plugin_id: str = ""
+    requires_capabilities: tuple[str, ...] = ()
 
 
 class ToolRegistry:
@@ -158,6 +161,7 @@ class ToolRegistry:
         enabled_features: set[str] | frozenset[str] | None = None,
         allowed: set[str] | frozenset[str] | None = None,
         denied: set[str] | frozenset[str] | None = None,
+        target_capabilities: set[str] | frozenset[str] | None = None,
     ) -> list[ToolDescriptor]:
         """Return the descriptors selected for the current request.
 
@@ -175,6 +179,7 @@ class ToolRegistry:
         features = set(enabled_features or ())
         allow = set(allowed or ())
         deny = set(denied or ())
+        capabilities = set(target_capabilities or ())
 
         out: list[ToolDescriptor] = []
         for d in self._descs.values():
@@ -191,6 +196,10 @@ class ToolRegistry:
             if d.requires_features and not set(d.requires_features).issubset(
                 features,
             ):
+                continue
+            if target_capabilities is not None and d.requires_capabilities and not set(
+                d.requires_capabilities,
+            ).issubset(capabilities):
                 continue
             out.append(d)
         return out
@@ -237,6 +246,7 @@ def tool_descriptor(
     requires_skills: tuple[str, ...] = (),
     requires_features: tuple[str, ...] = (),
     requires_sandbox: tuple[str, ...] = (),
+    requires_capabilities: tuple[str, ...] = (),
     async_execution: bool | None = None,
     description: str = "",
     # Governance (packed into ToolGovernanceSpec)
@@ -297,6 +307,7 @@ def tool_descriptor(
             requires_skills=tuple(requires_skills),
             requires_features=tuple(requires_features),
             requires_sandbox=tuple(requires_sandbox),
+            requires_capabilities=tuple(requires_capabilities),
             async_execution=is_async,
             description=(
                 description or (fn.__doc__ or "").strip().splitlines()[0]

@@ -148,6 +148,7 @@ def _bridge_to_runtime(
     description: str,
     registry,
     plugin_id: str = "",
+    requires_capabilities: tuple[str, ...] = (),
 ) -> None:
     """Attach ToolDescriptor and inject into runtime ToolRegistries.
 
@@ -167,6 +168,7 @@ def _bridge_to_runtime(
             enabled_by_default=enabled,
             async_execution=is_async,
             description=description,
+            requires_capabilities=tuple(requires_capabilities),
             owner_plugin_id=plugin_id,
         )
         # pylint: disable-next=protected-access
@@ -175,8 +177,25 @@ def _bridge_to_runtime(
             "Attached ToolDescriptor to '%s'",
             tool_name,
         )
-    elif plugin_id and not getattr(desc, "owner_plugin_id", ""):
-        desc = replace(desc, owner_plugin_id=plugin_id)
+    elif plugin_id and (
+        not getattr(desc, "owner_plugin_id", "")
+        or (
+            requires_capabilities
+            and tuple(getattr(desc, "requires_capabilities", ()))
+            != tuple(requires_capabilities)
+        )
+    ):
+        desc = replace(
+            desc,
+            owner_plugin_id=(
+                plugin_id or getattr(desc, "owner_plugin_id", "")
+            ),
+            requires_capabilities=(
+                tuple(requires_capabilities)
+                if requires_capabilities
+                else desc.requires_capabilities
+            ),
+        )
         # pylint: disable-next=protected-access
         tool_func._tool_descriptor = desc  # type: ignore[attr-defined]
 
@@ -652,6 +671,63 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             "Plugin '%s' registered memory backend '%s'",
             self.plugin_id,
             backend_id,
+        )
+
+    def register_execution_target_provider(
+        self,
+        name: str,
+        provider,
+        *,
+        priority: int = 100,
+    ) -> None:
+        """Register a request-scoped execution target provider.
+
+        The provider receives an ``ExecutionTargetRequest`` and may return an
+        execution target or ``None`` to let a lower-priority provider handle
+        the request. The local target is used only when every provider opts
+        out; provider errors are propagated so remote execution fails closed.
+        """
+        from ..execution.registry import ExecutionTargetProvider
+
+        self._guard_register()
+
+        def guarded_provider(request):
+            self._guard_register()
+            return provider(request)
+
+        target_provider = ExecutionTargetProvider(
+            name=name,
+            factory=guarded_provider,
+            priority=priority,
+            owner_plugin_id=self.plugin_id,
+        )
+
+        def apply(workspace):
+            self._guard_register()
+            registry = workspace.plugins.execution_target_registry
+            try:
+                registry.register(target_provider)
+            except (TypeError, ValueError) as exc:
+                self._projection_failed("execution_target_provider", exc)
+            return target_provider
+
+        def revoke(workspace, token=None):
+            workspace.plugins.execution_target_registry.unregister(
+                name,
+                expected=token or target_provider,
+            )
+
+        self._schedule_workspace_intent(
+            "execution_target_provider",
+            name,
+            apply,
+            revoke,
+            priority=40,
+        )
+        logger.info(
+            "Plugin '%s' registered execution target provider '%s'",
+            self.plugin_id,
+            name,
         )
 
     def bind_instance(self, instance, *, loader=None) -> None:
@@ -1690,6 +1766,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         enabled: bool = False,
         tool_type: str = "network",
         target_param: str = "",
+        requires_capabilities: tuple[str, ...] = (),
     ) -> None:
         """Register a tool function into the Agent's toolkit.
 
@@ -1804,6 +1881,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                         description,
                         self._registry,
                         self.plugin_id,
+                        requires_capabilities,
                     )
                 finally:
                     # A failed bridge may have published to some workspaces.
